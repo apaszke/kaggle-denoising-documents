@@ -5,6 +5,7 @@ require 'optim'
 require 'lfs'
 require 'gnuplot'
 require 'util.print'
+require 'util.misc'
 
 local MODEL_ID = torch.randn(1)[1]
 local ImageMinibatchLoader = require 'util.ImageMinibatchLoader'
@@ -100,40 +101,42 @@ function eval_split(split_index)
     function get_batch_id()
         return loader.file_idx[split_index] * 1e6 + loader.batch_idx[split_index]
     end
-    printRed('unsupported yet')
-    os.exit()
 
     -- iterate over batches in the split
-    --local ct = 0
-    --local last_batch_id = -1
-    --while get_batch_id() > last_batch_id do
-        --last_batch_id = get_batch_id()
-        ---- fetch a batch
-        --local x, y = loader:next_batch(split_index)
-        --if opt.gpuid >= 0 then -- ship the input arrays to GPU
-            ---- have to convert to float because integers can't be cuda()'d
-            --x = x:float():cuda()
-            --y = y:float():cuda()
-        --end
-        ---- forward pass
-        --local batch_size = x:size(1)
-        --local num_steps = x:size(2) - opt.window_len + 1
-        --local partial_loss = 0
-        --for first_sample = 1, num_steps do
-            --local last_sample = first_sample + opt.window_len - 1
-            --local x_mini = x:sub(1, batch_size, first_sample, last_sample)
-            --local y_mini = y[{{}, last_sample, {}}]
-            --partial_loss = partial_loss + criterion:forward(cnn:forward(x_mini), y_mini)
-        --end
-        --loss = loss + (partial_loss / num_steps)
-        --ct = ct + 1
-        --if ct % 10 == 0 then
-            --print('Evaluated: ' .. ct .. ' batches')
-        --end
-    --end
+    local ct = 0
+    local last_batch_id = -1
+    local example_shown = false
+    while get_batch_id() > last_batch_id do
+        last_batch_id = get_batch_id()
+        -- fetch a batch
+        local x, y = loader:next_batch(split_index)
+        if opt.gpuid >= 0 then -- ship the input arrays to GPU
+            -- have to convert to float because integers can't be cuda()'d
+            for i = 1, #x do
+                x[i] = x[i]:float():cuda()
+                y[i] = y[i]:float():cuda()
+            end
+        end
+        -- forward pass
+        local partial_loss = 0
+        for i = 1, #x do
+            partial_loss = partial_loss + criterion:forward(cnn:forward(x[i]), y[i])
+            if not example_shown then
+                gnuplot.figure(2)
+                gnuplot.imagesc(cnn.output:view(cnn.output:size(2), -1):clip(0, 1), 'gray')
+                gnuplot.figure(1)
+                example_shown = true
+            end
+        end
+        loss = loss + (partial_loss / #x)
+        ct = ct + 1
+        if ct % 10 == 0 then
+            print('Evaluated: ' .. ct .. ' batches')
+        end
+    end
 
-    --loss = loss / ct
-    --return loss
+    loss = loss / ct
+    return loss
 end
 
 local params, grad_params = cnn:getParameters()
@@ -147,26 +150,25 @@ local feval = function(x)
     local x, y = loader:next_batch(1)
     if opt.gpuid >= 0 then -- ship the input arrays to GPU
         -- have to convert to float because integers can't be cuda()'d
-        x = x:float():cuda()
-        y = y:float():cuda()
+        for i = 1, #x do
+            x[i] = x[i]:float():cuda()
+            y[i] = y[i]:float():cuda()
+        end
     end
 
-    local loss = criterion:forward(cnn:forward(x), y)
-    cnn:backward(x, criterion:backward(cnn.output, y))
-
+    local loss = 0
+    for i = 1, #x do
+        local partial_loss = criterion:forward(cnn:forward(x[i]), y[i])
+        loss = loss + partial_loss
+        cnn:backward(x[i], criterion:backward(cnn.output, y[i]))
+    end
+    loss = loss / #x
 
     grad_params:clamp(-5, 5)
+    grad_params:div(#x)
     return loss, grad_params
 end
 
-function calculate_avg_loss(losses)
-    local smoothing = 40
-    local sum = 0
-    for i = #losses, math.max(1, #losses - smoothing + 1), -1 do
-        sum = sum + losses[i]
-    end
-    return sum / math.min(smoothing, #losses)
-end
 
 -- start optimization here
 train_losses = train_losses or {}
@@ -246,11 +248,11 @@ for i = start_iter, iterations do
         print('loss is NaN.  This usually indicates a bug.  Please check the issues page for existing issues, or create a new issue, if none exist.  Ideally, please state: your operating system, 32-bit/64-bit, your blas version, cpu/cuda/cl?')
         break -- halt
     end
-    if loss0 == nil then loss0 = loss[1] end
-    if loss[1] > loss0 * 3 then
-        print('loss is exploding, aborting.')
-        break -- halt
-    end
+    --if loss0 == nil then loss0 = loss[1] end
+    --if loss[1] > loss0 * 3 then
+        --print('loss is exploding, aborting.')
+        --break -- halt
+    --end
 end
 
 

@@ -17,7 +17,9 @@ function ImageMinibatchLoader.create(opt)
     local self = {}
     setmetatable(self, ImageMinibatchLoader)
 
+    -- TODO: depends on opts
     self.apply_zca = true
+    self.val_part = 0.07
     self.x_torch_prefix = path.join(torch_dir, 'data')
     self.y_torch_prefix = path.join(torch_dir, 'label')
     self.torch_dir = torch_dir
@@ -35,7 +37,7 @@ function ImageMinibatchLoader.create(opt)
         -- preprocess files and save the tensors
         print('one-time setup: preprocessing input...')
         local data_files, val_files =
-                ImageMinibatchLoader.glob_raw_data_files(data_dir, label_dir)
+                self:glob_raw_data_files(data_dir, label_dir)
         print('parsing training data')
         self.total_samples = self:preprocess(data_files,
                                              self.x_torch_prefix .. '_train',
@@ -67,7 +69,6 @@ function ImageMinibatchLoader:load_file(split_index, index)
         os.exit()
     end
     if self.file_count[split_index] < index then
-        PRINT(self.file_count)
         printRed('invalid file index in load_file: split=' .. split_index .. ', index=' .. index)
         os.exit()
     end
@@ -184,29 +185,43 @@ function ImageMinibatchLoader.count_prepro_files(prepro_dir)
 end
 
 
-function ImageMinibatchLoader.glob_raw_data_files(data_dir, label_dir)
+function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir)
     local data = {}
     local labels = {}
+    local raw_data = {}
+    local raw_labels = {}
     local val_data = {}
     local val_labels = {}
 
     for file in lfs.dir(data_dir) do
-        if file:find('.png.val') then
-            table.insert(val_data, path.join(data_dir, file))
-        elseif file:find('.png.test') then
-          -- only sampler has to handle test files
-        elseif file:find('.png') then
-            table.insert(data, path.join(data_dir, file))
+        if file:find('.png') then
+            table.insert(raw_data, path.join(data_dir, file))
         end
     end
 
     for file in lfs.dir(label_dir) do
-        if file:find('.png.val') then
-            table.insert(val_labels, path.join(label_dir, file))
-        elseif file:find('.png.test') then
-          -- only sampler has to handle test files
-        elseif file:find('.png') then
-            table.insert(labels, path.join(label_dir, file))
+        if file:find('.png') then
+            table.insert(raw_labels, path.join(label_dir, file))
+        end
+    end
+
+    index_table = {}
+    index_count = 0
+    while index_count < math.floor(#raw_data * self.val_part) do
+        index = (torch.random() % #raw_data) + 1
+        if not index_table[index] then
+            index_table[index] = true
+            index_count = index_count + 1
+        end
+    end
+
+    for i = 1, #raw_data do
+        if not index_table[i] then
+            table.insert(data, raw_data[i])
+            table.insert(labels, raw_labels[i])
+        else
+            table.insert(val_data, raw_data[i])
+            table.insert(val_labels, raw_labels[i])
         end
     end
 
@@ -225,9 +240,11 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
     local data_idx = 1
 
-    PREPRO_TABLE_THRESHOLD = 500
-    PATCHES_PER_FILE = 50
+    -- TODO: read from opts
+    PREPRO_TABLE_THRESHOLD = 10000
+    PATCHES_PER_FILE = 200
     PATCH_SIZE = 32
+    BATCH_SIZE = 10
 
     -- helper function
     function saveTensors()
@@ -247,10 +264,25 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
         for i = 1, #data_table do
             data_table[i] = self.zca:transform(data_table[i]:view(1, -1)):view(1, PATCH_SIZE, -1)
         end
+
+        data_batch_table = {}
+        label_batch_table = {}
+        for i = 1, math.floor(#data_table / BATCH_SIZE), BATCH_SIZE do
+            data_batch = {}
+            label_batch = {}
+            for j = i, i+BATCH_SIZE-1 do
+                table.insert(data_batch, data_table[j])
+                table.insert(label_batch, label_table[j])
+            end
+            table.insert(data_batch_table, data_batch)
+            table.insert(label_batch_table, label_batch)
+        end
+        data_table = nil
+        label_table = nil
         collectgarbage()
 
-        torch.save(input_filename .. data_idx .. '.t7', data_table)
-        torch.save(label_filename .. data_idx .. '.t7', label_table)
+        torch.save(input_filename .. data_idx .. '.t7', data_batch_table)
+        torch.save(label_filename .. data_idx .. '.t7', label_batch_table)
 
         -- empty temporary tables
         data_idx = data_idx + 1
