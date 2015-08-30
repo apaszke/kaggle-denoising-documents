@@ -8,11 +8,7 @@ ImageMinibatchLoader.__index = ImageMinibatchLoader
 
 -- split_index is integer: 1 = train, 2 = val, 3 = test
 
--- TODO: read from opts
 PREPRO_TABLE_THRESHOLD = 10000
-PATCHES_PER_FILE = 200
-PATCH_SIZE = 48
-BATCH_SIZE = 10
 
 function ImageMinibatchLoader.create(opt)
     data_dir = opt.data_dir
@@ -25,8 +21,11 @@ function ImageMinibatchLoader.create(opt)
     setmetatable(self, ImageMinibatchLoader)
 
     -- TODO: make dependent on opts
-    self.apply_zca = true
-    self.val_part = 0.07
+    self.apply_zca = opt.apply_zca
+    self.val_part = opt.val_part
+    self.patches_per_file = opt.patches_per_file
+    self.patch_size = opt.patch_size
+    self.batch_size = opt.batch_size
     self.x_torch_prefix = path.join(torch_dir, 'data')
     self.y_torch_prefix = path.join(torch_dir, 'label')
     self.torch_dir = torch_dir
@@ -268,19 +267,19 @@ function ImageMinibatchLoader:preprocessTest(test_files, filename)
 
         if self.apply_zca then
             local transformed_img = torch.Tensor(height, width)
-            local patch = torch.Tensor(PATCH_SIZE, PATCH_SIZE)
-            for row = 1, math.ceil(height / PATCH_SIZE) do
-                for col = 1, math.ceil(width / PATCH_SIZE) do
-                    local hstart = (row - 1) * PATCH_SIZE + 1
-                    local wstart = (col - 1) * PATCH_SIZE + 1
-                    local hend = math.min(height, hstart+PATCH_SIZE-1)
-                    local wend = math.min(width, wstart+PATCH_SIZE-1)
-                    hstart = hend - PATCH_SIZE + 1
-                    wstart = wend - PATCH_SIZE + 1
+            local patch = torch.Tensor(self.patch_size, self.patch_size)
+            for row = 1, math.ceil(height / self.patch_size) do
+                for col = 1, math.ceil(width / self.patch_size) do
+                    local hstart = (row - 1) * self.patch_size + 1
+                    local wstart = (col - 1) * self.patch_size + 1
+                    local hend = math.min(height, hstart+self.patch_size-1)
+                    local wend = math.min(width, wstart+self.patch_size-1)
+                    hstart = hend - self.patch_size + 1
+                    wstart = wend - self.patch_size + 1
 
                     patch:copy(img:sub(1, 1, hstart, hend, wstart, wend))
 
-                    local output = self.zca:transform(patch:view(1, -1)):view(PATCH_SIZE, -1)
+                    local output = self.zca:transform(patch:view(1, -1)):view(self.patch_size, -1)
 
                     transformed_img:sub(hstart, hend, wstart, wend):copy(output)
                 end
@@ -307,7 +306,7 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
         if self.apply_zca and not self.zca then
             self.zca = ZCA()
-            local zca_data = torch.Tensor(#data_table, PATCH_SIZE * PATCH_SIZE)
+            local zca_data = torch.Tensor(#data_table, self.patch_size * self.patch_size)
             for i = 1, #data_table do
                 zca_data[i]:copy(data_table[i]:view(-1))
             end
@@ -317,15 +316,15 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
         collectgarbage()
 
         for i = 1, #data_table do
-            data_table[i] = self.zca:transform(data_table[i]:view(1, -1)):view(1, PATCH_SIZE, -1)
+            data_table[i] = self.zca:transform(data_table[i]:view(1, -1)):view(1, self.patch_size, -1)
         end
 
         data_batch_table = {}
         label_batch_table = {}
-        for i = 1, math.floor(#data_table / BATCH_SIZE), BATCH_SIZE do
+        for i = 1, math.floor(#data_table / self.batch_size), self.batch_size do
             data_batch = {}
             label_batch = {}
-            for j = i, i+BATCH_SIZE-1 do
+            for j = i, i+self.batch_size-1 do
                 table.insert(data_batch, data_table[j])
                 table.insert(label_batch, label_table[j])
             end
@@ -360,16 +359,16 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
         local height = img_x:size(1)
         local width = img_x:size(2)
-        local hrange = height - PATCH_SIZE
-        local wrange = width - PATCH_SIZE
+        local hrange = height - self.patch_size
+        local wrange = width - self.patch_size
 
-        for i = 1,PATCHES_PER_FILE do
+        for i = 1,self.patches_per_file do
             local hstart = (torch.random() % hrange) + 1
             local wstart = (torch.random() % wrange) + 1
             local patch_x = image.crop(img_x, wstart, hstart,
-                                       wstart+PATCH_SIZE, hstart+PATCH_SIZE):view(PATCH_SIZE, -1)
+                                       wstart+self.patch_size, hstart+self.patch_size):view(self.patch_size, -1)
             local patch_y = image.crop(img_y, wstart, hstart,
-                                       wstart+PATCH_SIZE, hstart+PATCH_SIZE):view(PATCH_SIZE, -1)
+                                       wstart+self.patch_size, hstart+self.patch_size):view(self.patch_size, -1)
             table.insert(data_table, patch_x)
             table.insert(label_table, patch_y)
 
@@ -389,7 +388,7 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
     printYellow(string.format("Elapsed: %.2fs", timer:time().real))
 
     collectgarbage()
-    return #input_files.data * PATCHES_PER_FILE
+    return #input_files.data * self.patches_per_file
 end
 
 return ImageMinibatchLoader

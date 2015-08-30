@@ -19,6 +19,11 @@ cmd:text('Options')
 cmd:option('-data_dir','data/train','data directory')
 cmd:option('-torch_dir','data/torch','torch data directory')
 cmd:option('-test_dir','data/test','test data directory')
+cmd:option('-apply_zca',true,'specifies if ZCA whitening should be applied to network input')
+cmd:option('-val_part',0.07,'what fraction of data should be taken as validation set')
+cmd:option('-patches_per_file',200,'how many patches to extract from each training file')
+cmd:option('-patch_size',48,'patch size')
+cmd:option('-batch_size',10,'minibatch size')
 -- model prototype
 cmd:option('-proto_file', 'cnn/proto/first_cnn.lua', 'file defining network structure')
 -- optimization
@@ -27,10 +32,6 @@ cmd:option('-learning_rate',2e-3,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
-cmd:option('-dropout',0,'dropout for regularization (0 = no dropout)')
-cmd:option('-seq_length',800,'batch length')
-cmd:option('-batch_size',2,'number of sequences to train on in parallel')
-cmd:option('-window_len',300,'cnn window size')
 cmd:option('-max_epochs',50,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
 -- checkpoints
@@ -152,6 +153,7 @@ function eval_split(split_index)
 end
 
 local params, grad_params = cnn:getParameters()
+print('number of parameters: ' .. params:nElement())
 params:uniform(-0.08, 0.08)
 local feval = function(x)
     if x ~= params then
