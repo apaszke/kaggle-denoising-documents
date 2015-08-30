@@ -8,16 +8,23 @@ ImageMinibatchLoader.__index = ImageMinibatchLoader
 
 -- split_index is integer: 1 = train, 2 = val, 3 = test
 
+-- TODO: read from opts
+PREPRO_TABLE_THRESHOLD = 10000
+PATCHES_PER_FILE = 200
+PATCH_SIZE = 48
+BATCH_SIZE = 10
+
 function ImageMinibatchLoader.create(opt)
     data_dir = opt.data_dir
     label_dir = path.join(data_dir, 'y')
     data_dir = path.join(data_dir, 'x')
+    test_dir = opt.test_dir
     torch_dir = opt.torch_dir
 
     local self = {}
     setmetatable(self, ImageMinibatchLoader)
 
-    -- TODO: depends on opts
+    -- TODO: make dependent on opts
     self.apply_zca = true
     self.val_part = 0.07
     self.x_torch_prefix = path.join(torch_dir, 'data')
@@ -36,8 +43,8 @@ function ImageMinibatchLoader.create(opt)
     if run_prepro then
         -- preprocess files and save the tensors
         print('one-time setup: preprocessing input...')
-        local data_files, val_files =
-                self:glob_raw_data_files(data_dir, label_dir)
+        local data_files, val_files, test_files =
+                self:glob_raw_data_files(data_dir, label_dir, test_dir)
         print('parsing training data')
         self.total_samples = self:preprocess(data_files,
                                              self.x_torch_prefix .. '_train',
@@ -47,7 +54,11 @@ function ImageMinibatchLoader.create(opt)
         self:preprocess(val_files,
                         self.x_torch_prefix .. '_val',
                         self.y_torch_prefix .. '_val')
+        print('parsing test data')
+        self:preprocessTest(test_files,
+                      self.x_torch_prefix .. '_test')
     end
+    self.zca = nil
 
     local train_ct, val_ct, test_ct = self.count_prepro_files(torch_dir)
     self.file_count = {train_ct, val_ct, test_ct}
@@ -185,13 +196,14 @@ function ImageMinibatchLoader.count_prepro_files(prepro_dir)
 end
 
 
-function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir)
+function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir, test_dir)
     local data = {}
     local labels = {}
     local raw_data = {}
     local raw_labels = {}
     local val_data = {}
     local val_labels = {}
+    local test_files = {}
 
     for file in lfs.dir(data_dir) do
         if file:find('.png') then
@@ -202,6 +214,12 @@ function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir)
     for file in lfs.dir(label_dir) do
         if file:find('.png') then
             table.insert(raw_labels, path.join(label_dir, file))
+        end
+    end
+
+    for file in lfs.dir(test_dir) do
+        if file:find('.png') then
+            table.insert(test_files, path.join(test_dir, file))
         end
     end
 
@@ -230,7 +248,49 @@ function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir)
 
     printBlue(string.format('found %d training files, %d validation files', #data, #val_data))
 
-    return {data=data, labels=labels}, {data=val_data, labels=val_labels}
+    return {data=data, labels=labels}, {data=val_data, labels=val_labels}, test_files
+end
+
+function ImageMinibatchLoader:preprocessTest(test_files, filename)
+    local test_images = {}
+    --function file_cmp(f1, f2)
+        --local f1 = tonumber(path.basename(f1):sub(0, -5))
+        --local f2 = tonumber(path.basename(f2):sub(0, -5))
+        --return f1 < f2
+    --end
+    --table.sort(test_files, file_cmp)
+    for i, file in ipairs(test_files) do
+        xlua.progress(i, #test_files)
+        local file_number = tonumber(path.basename(file):sub(0, -5))
+        local img = image.load(file)
+        local height = img:size(2)
+        local width = img:size(3)
+
+        if self.apply_zca then
+            local transformed_img = torch.Tensor(height, width)
+            local patch = torch.Tensor(PATCH_SIZE, PATCH_SIZE)
+            for row = 1, math.ceil(height / PATCH_SIZE) do
+                for col = 1, math.ceil(width / PATCH_SIZE) do
+                    local hstart = (row - 1) * PATCH_SIZE + 1
+                    local wstart = (col - 1) * PATCH_SIZE + 1
+                    local hend = math.min(height, hstart+PATCH_SIZE-1)
+                    local wend = math.min(width, wstart+PATCH_SIZE-1)
+                    hstart = hend - PATCH_SIZE + 1
+                    wstart = wend - PATCH_SIZE + 1
+
+                    patch:copy(img:sub(1, 1, hstart, hend, wstart, wend))
+
+                    local output = self.zca:transform(patch:view(1, -1)):view(PATCH_SIZE, -1)
+
+                    transformed_img:sub(hstart, hend, wstart, wend):copy(output)
+                end
+            end
+            img = transformed_img:view(1, height, width)
+        end
+
+        table.insert(test_images, {img_number=file_number, img_data=img})
+    end
+    torch.save(filename .. '1.t7', test_images)
 end
 
 function ImageMinibatchLoader:preprocess(input_files, input_filename, label_filename)
@@ -240,11 +300,6 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
     local data_idx = 1
 
-    -- TODO: read from opts
-    PREPRO_TABLE_THRESHOLD = 10000
-    PATCHES_PER_FILE = 200
-    PATCH_SIZE = 32
-    BATCH_SIZE = 10
 
     -- helper function
     function saveTensors()
@@ -333,7 +388,6 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
     end
     printYellow(string.format("Elapsed: %.2fs", timer:time().real))
 
-    self.zca = nil
     collectgarbage()
     return #input_files.data * PATCHES_PER_FILE
 end

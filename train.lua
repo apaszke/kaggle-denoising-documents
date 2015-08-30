@@ -18,6 +18,7 @@ cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/train','data directory')
 cmd:option('-torch_dir','data/torch','torch data directory')
+cmd:option('-test_dir','data/test','test data directory')
 -- model prototype
 cmd:option('-proto_file', 'cnn/proto/first_cnn.lua', 'file defining network structure')
 -- optimization
@@ -106,6 +107,7 @@ function eval_split(split_index)
     local ct = 0
     local last_batch_id = -1
     local example_shown = false
+    local examples = {}
     while get_batch_id() > last_batch_id do
         last_batch_id = get_batch_id()
         -- fetch a batch
@@ -120,14 +122,24 @@ function eval_split(split_index)
         -- forward pass
         local partial_loss = 0
         for i = 1, #x do
-            partial_loss = partial_loss + criterion:forward(cnn:forward(x[i]), y[i])
+            partial_loss = partial_loss + criterion:forward(cnn:forward(x[i]):clamp(0,1), y[i])
             if not example_shown then
-                gnuplot.figure(2)
-                gnuplot.imagesc(cnn.output:view(cnn.output:size(2), -1):clip(0, 1), 'gray')
-                gnuplot.figure(1)
-                example_shown = true
+                table.insert(examples, x[i])
+                table.insert(examples, cnn.output:clone())
             end
         end
+        if not example_shown then
+            local patch_size = examples[1]:size(2)
+            local example_tensor = torch.Tensor(patch_size, patch_size * #examples)
+            for i = 1, #examples do
+                example_tensor:sub(1, patch_size, (i-1) * patch_size + 1, i * patch_size):copy(examples[i]:view(patch_size, -1))
+            end
+            gnuplot.figure(2)
+            gnuplot.imagesc(example_tensor:clamp(0, 1), 'gray')
+            gnuplot.figure(1)
+            example_shown = true
+        end
+
         loss = loss + (partial_loss / #x)
         ct = ct + 1
         if ct % 10 == 0 then
@@ -158,7 +170,7 @@ local feval = function(x)
 
     local loss = 0
     for i = 1, #x do
-        local partial_loss = criterion:forward(cnn:forward(x[i]), y[i])
+        local partial_loss = criterion:forward(cnn:forward(x[i]):clamp(0, 1), y[i])
         loss = loss + partial_loss
         cnn:backward(x[i], criterion:backward(cnn.output, y[i]))
     end
@@ -227,6 +239,7 @@ for i = start_iter, iterations do
         local checkpoint = {}
         checkpoint.cnn = cnn
         checkpoint.criterion = criterion
+        checkpoint.patch_size = 32
         checkpoint.type = "cnn"
         checkpoint.opt = opt
         checkpoint.train_losses = train_losses
