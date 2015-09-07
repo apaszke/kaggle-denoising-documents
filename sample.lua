@@ -53,7 +53,7 @@ if not lfs.attributes(opt.model, 'mode') then
 end
 checkpoint = torch.load(opt.model)
 cnn = checkpoint.cnn
-patch_size = checkpoint.patch_size or 32
+patch_size = checkpoint.patch_size
 
 -- start sampling
 
@@ -85,6 +85,10 @@ for i = 1, #test_img do
             patch:fill(0)
             patch:copy(img:sub(hstart, hend, wstart, wend))
 
+            if opt.gpuid > -1 then
+                patch = patch:cuda()
+            end
+
             local output = cnn:forward(patch:view(1, patch_size, -1)):view(patch_size, -1)
             out_img:sub(hstart, hend, wstart, wend):copy(output:clone())
 
@@ -100,7 +104,7 @@ for i = 1, #test_img do
     end
     out_file:flush()
 
-    image.save(path.join(opt.out_dir, i .. '.png'), out_img)
+    image.save(path.join(opt.out_dir, img_number .. '.png'), out_img)
 end
 
 out_file:close()
