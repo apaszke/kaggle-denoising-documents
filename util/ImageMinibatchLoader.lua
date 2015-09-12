@@ -12,16 +12,14 @@ PREPRO_TABLE_THRESHOLD = 10000
 
 function ImageMinibatchLoader.create(opt)
     data_dir = opt.data_dir
-    label_dir = path.join(data_dir, 'y')
-    data_dir = path.join(data_dir, 'x')
+    val_dir = opt.val_dir
     test_dir = opt.test_dir
     torch_dir = opt.torch_dir
 
     local self = {}
     setmetatable(self, ImageMinibatchLoader)
 
-    -- TODO: make dependent on opts
-    self.apply_zca = opt.apply_zca
+    self.apply_zca = not opt.no_zca
     self.val_part = opt.val_part
     self.patches_per_file = opt.patches_per_file
     self.patch_size = opt.patch_size
@@ -43,7 +41,7 @@ function ImageMinibatchLoader.create(opt)
         -- preprocess files and save the tensors
         print('one-time setup: preprocessing input...')
         local data_files, val_files, test_files =
-                self:glob_raw_data_files(data_dir, label_dir, test_dir)
+                self:glob_raw_data_files(data_dir, val_dir, test_dir)
         print('parsing training data')
         self.total_samples = self:preprocess(data_files,
                                              self.x_torch_prefix .. '_train',
@@ -195,50 +193,46 @@ function ImageMinibatchLoader.count_prepro_files(prepro_dir)
 end
 
 
-function ImageMinibatchLoader:glob_raw_data_files(data_dir, label_dir, test_dir)
+function ImageMinibatchLoader:glob_raw_data_files(data_dir, val_dir, test_dir)
     local data = {}
     local labels = {}
-    local raw_data = {}
-    local raw_labels = {}
     local val_data = {}
     local val_labels = {}
     local test_files = {}
 
+    label_dir = path.join(data_dir, 'y')
+    data_dir = path.join(data_dir, 'x')
+
+    val_label_dir = path.join(val_dir, 'y')
+    val_data_dir = path.join(val_dir, 'x')
+
     for file in lfs.dir(data_dir) do
         if file:find('.png') then
-            table.insert(raw_data, path.join(data_dir, file))
+            table.insert(data, path.join(data_dir, file))
         end
     end
 
     for file in lfs.dir(label_dir) do
         if file:find('.png') then
-            table.insert(raw_labels, path.join(label_dir, file))
+            table.insert(labels, path.join(label_dir, file))
+        end
+    end
+
+    for file in lfs.dir(val_data_dir) do
+        if file:find('.png') then
+            table.insert(val_data, path.join(val_data_dir, file))
+        end
+    end
+
+    for file in lfs.dir(val_label_dir) do
+        if file:find('.png') then
+            table.insert(val_labels, path.join(val_label_dir, file))
         end
     end
 
     for file in lfs.dir(test_dir) do
         if file:find('.png') then
             table.insert(test_files, path.join(test_dir, file))
-        end
-    end
-
-    index_table = {}
-    index_count = 0
-    while index_count < math.floor(#raw_data * self.val_part) do
-        index = (torch.random() % #raw_data) + 1
-        if not index_table[index] then
-            index_table[index] = true
-            index_count = index_count + 1
-        end
-    end
-
-    for i = 1, #raw_data do
-        if not index_table[i] then
-            table.insert(data, raw_data[i])
-            table.insert(labels, raw_labels[i])
-        else
-            table.insert(val_data, raw_data[i])
-            table.insert(val_labels, raw_labels[i])
         end
     end
 
@@ -315,9 +309,12 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
         collectgarbage()
 
-        for i = 1, #data_table do
-            data_table[i] = self.zca:transform(data_table[i]:view(1, -1)):view(1, self.patch_size, -1)
-        end
+            for i = 1, #data_table do
+                if self.apply_zca then
+                    data_table[i] = self.zca:transform(data_table[i]:view(1, -1))
+                end
+                data_table[i] = data_table[i]:view(1, self.patch_size, -1)
+            end
 
         data_batch_table = {}
         label_batch_table = {}
