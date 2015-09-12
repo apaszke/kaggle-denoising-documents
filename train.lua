@@ -39,6 +39,7 @@ cmd:option('-init_from', '', 'initialize network parameters from checkpoint at t
 -- bookkeeping
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
+cmd:option('-plot_after',100,'how many steps/minibatches to ignore in the plot')
 cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','cnn','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
@@ -154,7 +155,7 @@ end
 
 local params, grad_params = cnn:getParameters()
 print('number of parameters: ' .. params:nElement())
-params:uniform(-0.08, 0.08)
+-- params:uniform(-0.08, 0.08)
 local feval = function(x)
     if x ~= params then
         params:copy(x)
@@ -216,9 +217,11 @@ for i = start_iter, iterations do
         local param_norm = params:norm()
         print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, param norm = %.2e time/batch = %.2fs",
                 i, iterations, epoch, train_loss, grad_norm / param_norm, param_norm, time))
-        local ct = 0;
-        local xAxis = torch.Tensor(#train_losses_avg):apply(function() ct = ct + 1; return ct; end)
-        gnuplot.plot(xAxis, torch.Tensor(train_losses_avg))
+        if i > opt.plot_after then
+            local ct = opt.plot_after;
+            local xAxis = torch.Tensor(#train_losses_avg - opt.plot_after):apply(function() ct = ct + 1; return ct; end)
+            gnuplot.plot(xAxis, torch.Tensor(train_losses_avg):sub(opt.plot_after + 1, i))
+        end
     end
 
     -- exponential learning rate decay
