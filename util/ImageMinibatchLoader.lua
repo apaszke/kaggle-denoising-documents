@@ -94,31 +94,7 @@ function ImageMinibatchLoader:load_file(split_index, index)
     print('loading data part ' .. index .. ' from split ' .. split_index)
     local data = torch.load(x_path)
     local labels = torch.load(y_path)
-
-    -- cut off the end so that it divides evenly
     local len = #data
-    --if len % (self.batch_size * self.seq_length) ~= 0 then
-        --print('cutting off end of data so that the batches/sequences divide evenly')
-        --local new_len = self.batch_size * self.seq_length
-                    --* math.floor(len / (self.batch_size * self.seq_length))
-        --if new_len == 0 then
-            --printRed(string.format('ERROR! Minimum batch size is: %d, but there are only %d samples', self.batch_size * self.seq_length, len))
-        --end
-        --data = data:sub(1, new_len)
-        --labels = labels:sub(1, new_len)
-        --printYellow(string.format('wasted %d samples out of %d (%.3f%%)', len - new_len, len, (1 - (new_len / len)) * 100))
-    --end
-
-    -- get input and label dimensionality
-    --self.input_dim = data:size(2)
-    --self.label_dim = labels:size(2)
-
-    -- (x, y, z) = (batch_nr, sample_nr, feat_nr)
-    --self.x_batches = data:view(self.batch_size, -1, self.input_dim):split(self.seq_length, 2)
-    --self.nbatches = #self.x_batches
-    --self.y_batches = labels:view(self.batch_size, -1, self.label_dim):split(self.seq_length, 2)
-    --assert(#self.x_batches == #self.y_batches)
-    --printBlue('loaded ' .. self.nbatches .. ' batches')
 
     self.x_batches = data
     self.y_batches = labels
@@ -246,12 +222,7 @@ end
 
 function ImageMinibatchLoader:preprocessTest(test_files, filename)
     local test_images = {}
-    --function file_cmp(f1, f2)
-        --local f1 = tonumber(path.basename(f1):sub(0, -5))
-        --local f2 = tonumber(path.basename(f2):sub(0, -5))
-        --return f1 < f2
-    --end
-    --table.sort(test_files, file_cmp)
+    table.sort(test_files)
     for i, file in ipairs(test_files) do
         xlua.progress(i, #test_files)
         local file_number = tonumber(path.basename(file):sub(0, -5))
