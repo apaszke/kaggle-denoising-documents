@@ -27,16 +27,14 @@ aliquam rhoncus, urna quam viverra nisi, in interdum massa
 nibh nec erat.\
 """.split('\n')
 
-backgrounds = []
-for i in range(1,5):
-    backgrounds += [Image.open('data/bg/{}.png'.format(i), 'r')]
+backgrounds = [Image.open('data/bg/{}.png'.format(i), 'r').convert("L") for i in range(1, 5+1)]
 
 def draw_text(draw):
     for i, line in enumerate(lines):
-        draw.text((10, i*40 + 10), line, (0,0,0), font=fonts[0])
+        draw.text((10, i*40 + 10), line, 0, font=fonts[0])
 
 for i in range(1,num_images+1):
-    img = Image.new("RGBA", (540,420),(255,255,255))
+    img = Image.new("L", (540,420), 255)
     draw = ImageDraw.Draw(img)
 
     draw_text(draw)
