@@ -131,17 +131,17 @@ function eval_split(split_index)
                 table.insert(examples, cnn.output:clone())
             end
         end
-        if not example_shown then
-            local patch_size = examples[1]:size(2)
-            local example_tensor = torch.Tensor(patch_size, patch_size * #examples)
-            for i = 1, #examples do
-                example_tensor:sub(1, patch_size, (i-1) * patch_size + 1, i * patch_size):copy(examples[i]:view(patch_size, -1))
-            end
-            gnuplot.figure(2)
-            gnuplot.imagesc(example_tensor:clamp(0, 1), 'gray')
-            gnuplot.figure(1)
-            example_shown = true
-        end
+        -- if not example_shown then
+        --     local patch_size = examples[1]:size(2)
+        --     local example_tensor = torch.Tensor(patch_size, patch_size * #examples)
+        --     for i = 1, #examples do
+        --         example_tensor:sub(1, patch_size, (i-1) * patch_size + 1, i * patch_size):copy(examples[i]:view(patch_size, -1))
+        --     end
+        --     gnuplot.figure(2)
+        --     gnuplot.imagesc(example_tensor:clamp(0, 1), 'gray')
+        --     gnuplot.figure(1)
+        --     example_shown = true
+        -- end
 
         loss = loss + (partial_loss / #x)
         ct = ct + 1
@@ -198,6 +198,9 @@ if opt.optim_algo == 'rmsprop' then
 elseif opt.optim_algo == 'adadelta' then
     optim_fun = optim.adadelta
     optim_state = {rho = 0.95, eps = 1e-7}
+elseif opt.optim_algo == 'momentum' then
+    optim_fun = optim.nag
+    optim_state = {momentum = 0.95, learningRate = opt.learning_rate}
 end
 
 local iterations = opt.max_epochs * loader.total_samples
