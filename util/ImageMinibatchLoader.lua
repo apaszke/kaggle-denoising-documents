@@ -280,12 +280,12 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
 
         collectgarbage()
 
-            for i = 1, #data_table do
-                if self.apply_zca then
-                    data_table[i] = self.zca:transform(data_table[i]:view(1, -1))
-                end
-                data_table[i] = data_table[i]:view(1, self.patch_size, -1)
+        for i = 1, #data_table do
+            if self.apply_zca then
+                data_table[i] = self.zca:transform(data_table[i]:view(1, -1))
             end
+            data_table[i] = data_table[i]:view(1, self.patch_size, -1)
+        end
 
         data_batch_table = {}
         label_batch_table = {}
@@ -330,13 +330,15 @@ function ImageMinibatchLoader:preprocess(input_files, input_filename, label_file
         local hrange = height - self.patch_size
         local wrange = width - self.patch_size
 
+        local OFFSET = 12
+
         for i = 1,self.patches_per_file do
             local hstart = (torch.random() % hrange) + 1
             local wstart = (torch.random() % wrange) + 1
             local patch_x = image.crop(img_x, wstart, hstart,
                                        wstart+self.patch_size, hstart+self.patch_size):view(self.patch_size, -1)
-            local patch_y = image.crop(img_y, wstart, hstart,
-                                       wstart+self.patch_size, hstart+self.patch_size):view(self.patch_size, -1)
+            local patch_y = image.crop(img_y, wstart+OFFSET, hstart+OFFSET,
+                                       wstart+self.patch_size-OFFSET, hstart+self.patch_size-OFFSET):view(self.patch_size, -1)
             table.insert(data_table, patch_x)
             table.insert(label_table, patch_y)
 
